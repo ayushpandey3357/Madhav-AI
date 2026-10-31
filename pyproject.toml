@@ -1,0 +1,14 @@
+[project]
+name = "madhav-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "duckduckgo-search>=8.1.1",
+    "openai>=3.37.0",
+    "pyautogui>=0.9.54",
+    "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
+    "yt-dlp>=2026.10.21",
+]
