@@ -112,7 +112,7 @@ def is_relevant(query: str, title: str, snippet: str = "") -> bool:
 
     matches = sum(1 for t in q_tokens if t in target_words)
 
-    # For short queries (1 or 2 core words, e.g. "Stella Cox" or "Python tutorial"),
+    # For short queries (1 or 2 core words, e.g. "Alex Morgan" or "Python tutorial"),
     # require all core tokens to be present.
     if len(q_tokens) <= 2:
         return matches == len(q_tokens)

@@ -10,8 +10,8 @@ from main import detect_tool_request, TOOLS
 # (input_text, expected_tool_or_None, description)
 TEST_CASES = [
     # --- Ordinary questions & statements (MUST NOT trigger any tool) ---
-    ("Who is Stella Cox?",                          None,              "question about a person"),
-    ("I think Stella Cox is an actress",            None,              "statement about a person"),
+    ("Who is Alex Morgan?",                         None,              "question about a person"),
+    ("I think Alex Morgan is an actress",           None,              "statement about a person"),
     ("Tell me about Virat Kohli",                   None,              "tell-me about a person"),
     ("Explain neural networks",                     None,              "explain a topic"),
     ("What is machine learning?",                   None,              "what-is question"),
@@ -45,7 +45,7 @@ TEST_CASES = [
     ("Search internet for latest AI news",          "search_web",      "search internet for"),
     ("Look up on the internet quantum computing",   "search_web",      "look up on internet"),
     ("Search google for space exploration",         "search_web",      "search google for"),
-    ("Search for Dani Daniels on the web",          "search_web",      "search X on the web"),
+    ("Search for Taylor Reed on the web",           "search_web",      "search X on the web"),
 
     # --- Wake phrase regression tests ---
     ("Hey Madhav, search the web for the latest AI news.", "search_web", "wake phrase: Hey Madhav, search the web"),

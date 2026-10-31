@@ -16,6 +16,7 @@ from tools.git_tools import (
     current_branch,
     is_sensitive_path,
     list_changed_files,
+    list_staged_files,
     push_current_branch,
     recent_commits,
     stage_changes,
@@ -50,8 +51,8 @@ Response: {"action": "reply", "message": "Virat Kohli is an Indian international
 User: "What is machine learning?"
 Response: {"action": "reply", "message": "Machine learning is a branch of artificial intelligence where algorithms learn patterns from data to make predictions or decisions without explicit programming."}
 
-User: "Who is Mia Khalifa?"
-Response: {"action": "reply", "message": "Mia Khalifa is a Lebanese-American media personality and former adult film actress who gained widespread public attention in 2014."}
+User: "Who is Jordan Lee?"
+Response: {"action": "reply", "message": "Jordan Lee is a fictional public figure example used to demonstrate neutral biographical answers."}
 """
 
 # ---------------------------------------------------------------------------
@@ -143,7 +144,7 @@ def detect_tool_request(text: str):
     # Git commands -- only explicit action phrases trigger Git operations.
     # Questions such as "What is git commit?" remain ordinary questions.
     # ------------------------------------------------------------------
-    git_request = _detect_git_request(lowered)
+    git_request = _detect_git_request(cleaned)
     if git_request:
         return git_request
 
@@ -357,19 +358,20 @@ def detect_tool_request(text: str):
     return None
 
 
-def _detect_git_request(lowered: str):
+def _detect_git_request(text: str):
     """Return a deterministic Git request, or None for Git-related questions."""
-    normalized = lowered.strip(" .,!?\t")
-    if re.search(r"\b(?:check|show|display|list)\s+(?:the\s+)?git\s+status$", normalized):
+    normalized = text.strip(" .,!?\t")
+    lowered = normalized.lower()
+    if re.search(r"\b(?:check|show|display|list)\s+(?:the\s+)?git\s+status$", lowered):
         return {"action": "tool", "tool": "git_status", "query": "status"}
-    if re.search(r"\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:changed|modified|untracked)\s+files?$", normalized):
+    if re.search(r"\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:changed|modified|untracked)\s+files?$", lowered):
         return {"action": "tool", "tool": "git_changed_files", "query": "files"}
-    if re.search(r"\b(?:show|display)\s+(?:me\s+)?(?:my\s+)?current\s+branch$", normalized):
+    if re.search(r"\b(?:show|display)\s+(?:me\s+)?(?:my\s+)?current\s+branch$", lowered):
         return {"action": "tool", "tool": "git_branch", "query": "branch"}
 
     commits_match = re.search(
         r"\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?last\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+commits?$",
-        normalized,
+        lowered,
     )
     if commits_match:
         count_value = commits_match.group(1)
@@ -377,21 +379,34 @@ def _detect_git_request(lowered: str):
                        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
         count = word_counts[count_value] if count_value in word_counts else int(count_value)
         return {"action": "tool", "tool": "git_recent_commits", "query": str(count), "count": count}
-    if re.search(r"\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?recent\s+commits?$", normalized):
+    if re.search(r"\b(?:show|list)\s+(?:me\s+)?(?:my\s+)?recent\s+commits?$", lowered):
         return {"action": "tool", "tool": "git_recent_commits", "query": "5", "count": 5}
 
-    if re.search(r"\b(?:add|stage)\s+(?:all\s+)?(?:my\s+)?changes?\s+to\s+git$", normalized):
+    if re.search(r"\b(?:add|stage)\s+(?:all\s+)?(?:my\s+)?changes?\s+to\s+git$", lowered):
         return {"action": "tool", "tool": "git_stage", "query": "stage"}
+    specific_stage_match = re.search(
+        r"\b(?:add|stage)\s+(?:file\s+)?(.+?)(?:\s+to\s+git)?$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if specific_stage_match:
+        path = specific_stage_match.group(1).strip(" `.,!?\t")
+        if path and path.lower() not in {"all changes", "my changes"}:
+            return {"action": "tool", "tool": "git_stage", "query": path, "paths": [path]}
 
-    commit_match = re.search(r"\bcommit\s+(?:all\s+)?(?:my\s+)?changes?\s+with\s+message\s+(.+)$", normalized)
+    commit_match = re.search(
+        r"\bcommit(?:\s+(?:all\s+)?(?:my\s+)?changes?)?\s+with\s+message\s+(.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     if commit_match:
         message = commit_match.group(1).strip(" \t.,!?")
         return {"action": "tool", "tool": "git_commit", "query": message, "message": message}
-    if re.search(r"\bcommit\s+(?:and\s+)?push\s+(?:all\s+)?(?:my\s+)?changes?$", normalized):
+    if re.search(r"\bcommit\s+(?:and\s+)?push\s+(?:all\s+)?(?:my\s+)?changes?$", lowered):
         return {"action": "tool", "tool": "git_add_commit_push", "query": "commit and push", "message": ""}
-    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?\s+to\s+github$", normalized):
+    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?\s+to\s+github$", lowered):
         return {"action": "tool", "tool": "git_push", "query": "push"}
-    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?$", normalized):
+    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?$", lowered):
         return {"action": "tool", "tool": "git_push", "query": "push"}
     return None
 
@@ -579,7 +594,7 @@ def chat():
                         elif tool_name == "git_recent_commits":
                             answer = recent_commits(tool_dispatch.get("count", 5))
                         elif tool_name == "git_stage":
-                            staged = stage_changes()
+                            staged = stage_changes(paths=tool_dispatch.get("paths"))
                             answer = _format_stage_result(staged)
                         elif tool_name in {"git_commit", "git_add_commit_push"}:
                             message = tool_dispatch.get("message", "").strip()
@@ -588,25 +603,34 @@ def chat():
                             if not message:
                                 answer = "I need a non-empty commit message before committing."
                             else:
-                                preview = list_changed_files()
-                                candidate_files = (preview["changed"] or []) + (preview["untracked"] or [])
+                                preview = list_staged_files()
+                                candidate_files = preview["staged"] or []
                                 safe_files = [path for path in candidate_files if not is_sensitive_path(path)]
                                 skipped = [path for path in candidate_files if is_sensitive_path(path)]
-                                if not safe_files:
-                                    answer = "No safe files are available to stage; secret-like files were skipped."
+                                if skipped:
+                                    answer = "Cannot commit because possible secret files are already staged: " + ", ".join(skipped)
+                                elif not safe_files:
+                                    answer = "No staged changes are available to commit."
                                 else:
-                                    print(_format_stage_preview(safe_files, skipped))
+                                    print("Git files already staged for commit:\n" + "\n".join(f"  + {path}" for path in safe_files))
                                     confirmation = input("Commit these files? Type 'yes' to confirm: ").strip().lower()
                                     if confirmation != "yes":
                                         answer = "Commit cancelled; no files were committed."
                                     else:
-                                        staged = stage_changes()
-                                        commit_output = create_commit(message)
+                                        commit_output = create_commit(message, confirmed=True)
                                         answer = commit_output
                                         if tool_name == "git_add_commit_push":
-                                            answer += "\n" + push_current_branch()
+                                            push_confirmation = input("Push the committed changes? Type 'yes' to confirm: ").strip().lower()
+                                            if push_confirmation == "yes":
+                                                answer += "\n" + push_current_branch(confirmed=True)
+                                            else:
+                                                answer += "\nPush cancelled; the commit was created but not pushed."
                         elif tool_name == "git_push":
-                            answer = push_current_branch()
+                            confirmation = input("Push the current branch? Type 'yes' to confirm: ").strip().lower()
+                            if confirmation == "yes":
+                                answer = push_current_branch(confirmed=True)
+                            else:
+                                answer = "Push cancelled; no remote changes were made."
                         else:
                             answer = "Unsupported Git operation."
                     except GitToolError as err:

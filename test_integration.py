@@ -46,44 +46,44 @@ try:
 except Exception as e:
     check(False, "Machine learning question", f"Error: {e}")
 
-# 2. Test biographical question (Mia Khalifa) without refusal
-print("\n--- 2. Testing Biographical Question (Mia Khalifa) ---")
+# 2. Test biographical question (Jordan Lee) without refusal
+print("\n--- 2. Testing Biographical Question (Jordan Lee) ---")
 try:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "Who is Mia Khalifa?"}
+        {"role": "user", "content": "Who is Jordan Lee?"}
     ]
     raw = ask_madhav(messages)
     data = json.loads(raw)
     msg = data.get("message", "")
     is_refusal = is_uncertain_or_refusal(msg)
-    check(not is_refusal and ("khalifa" in msg.lower() or "actress" in msg.lower() or "media" in msg.lower()),
-          "Mia Khalifa biographical question answered without refusal", f"Got: {msg}")
+    check(not is_refusal and ("jordan lee" in msg.lower() or "fictional" in msg.lower() or "public figure" in msg.lower()),
+          "Jordan Lee biographical question answered without refusal", f"Got: {msg}")
 except Exception as e:
-    check(False, "Biographical question Mia Khalifa", f"Error: {e}")
+    check(False, "Biographical question Jordan Lee", f"Error: {e}")
 
-# 3. Test biographical fallback on lesser-known / uncertain subject (Stella Cox)
-print("\n--- 3. Testing Web Search Fallback for Stella Cox ---")
+# 3. Test biographical fallback on lesser-known / uncertain subject (Alex Morgan)
+print("\n--- 3. Testing Web Search Fallback for Alex Morgan ---")
 try:
     # First check what local model says
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "Who is Stella Cox?"}
+        {"role": "user", "content": "Who is Alex Morgan?"}
     ]
     raw = ask_madhav(messages)
     data = json.loads(raw)
     msg = data.get("message", "")
     if is_uncertain_or_refusal(msg):
         # Fallback triggers
-        facts = search_web("Stella Cox")
-        summary = summarize_search_results("Who is Stella Cox?", facts)
-        check("stella" in summary.lower() or "actress" in summary.lower(),
-              "Stella Cox answered using web search fallback", f"Summary: {summary}")
+        facts = search_web("Alex Morgan")
+        summary = summarize_search_results("Who is Alex Morgan?", facts)
+        check("alex morgan" in summary.lower() or "url:" in summary.lower(),
+              "Alex Morgan answered using web search fallback", f"Summary: {summary}")
     else:
-        check("stella" in msg.lower() or "actress" in msg.lower(),
-              "Stella Cox answered directly by model", f"Got: {msg}")
+        check("alex morgan" in msg.lower() and not is_refusal,
+              "Alex Morgan answered directly by model", f"Got: {msg}")
 except Exception as e:
-    check(False, "Stella Cox fallback", f"Error: {e}")
+    check(False, "Alex Morgan fallback", f"Error: {e}")
 
 # 4. Test explicit web search tool detection and execution
 print("\n--- 4. Testing Explicit Web Search ---")

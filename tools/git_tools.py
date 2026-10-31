@@ -160,18 +160,33 @@ def _safe_stage_paths(root: Path) -> tuple[list[str], list[str]]:
     return safe, secrets
 
 
+def _staged_paths(root: Path) -> list[str]:
+    output = _git_raw(["diff", "--cached", "--name-only", "-z"], root)
+    return [path for path in output.split("\x00") if path]
+
+
+def list_staged_files(project_dir: str | os.PathLike[str] | None = None) -> dict[str, object]:
+    root = repository_root(project_dir)
+    staged = _staged_paths(root)
+    return {
+        "repository": str(root),
+        "staged": staged,
+        "secret_files": [path for path in staged if is_sensitive_path(path)],
+    }
+
+
 def stage_changes(project_dir: str | os.PathLike[str] | None = None, paths: Iterable[str] | None = None) -> dict[str, object]:
     root = repository_root(project_dir)
     safe, secrets = _safe_stage_paths(root) if paths is None else ([], [])
     if paths is not None:
+        status_paths = {path for _, path in _status_entries(root)}
         for path in paths:
             if not isinstance(path, str) or not path.strip() or Path(path).is_absolute() or "\x00" in path:
                 raise GitToolError("Stage paths must be non-empty repository-relative paths.")
-            try:
-                (root / path).resolve().relative_to(root)
-            except ValueError as exc:
-                raise GitToolError("Stage paths must remain inside the Git repository.") from exc
-            (secrets if is_sensitive_path(path) else safe).append(path)
+            normalized_path = path.replace("\\", "/")
+            if normalized_path not in status_paths:
+                raise GitToolError(f"Path is not a currently changed repository file: {path}")
+            (secrets if is_sensitive_path(normalized_path) else safe).append(normalized_path)
     if not safe:
         return {"repository": str(root), "staged": [], "skipped_secrets": secrets, "message": "No safe files to stage."}
     with _lock_for(root):
@@ -181,12 +196,27 @@ def stage_changes(project_dir: str | os.PathLike[str] | None = None, paths: Iter
     return {"repository": str(root), "staged": safe, "skipped_secrets": secrets}
 
 
-def create_commit(message: str, project_dir: str | os.PathLike[str] | None = None) -> str:
+def create_commit(
+    message: str,
+    project_dir: str | os.PathLike[str] | None = None,
+    *,
+    confirmed: bool = False,
+) -> str:
+    if not confirmed:
+        raise GitToolError("Commit confirmation is required before creating a commit.")
     if not isinstance(message, str) or not message.strip():
         raise GitToolError("A non-empty commit message is required.")
     if "\x00" in message or len(message.strip()) > 500:
         raise GitToolError("Commit message is invalid or too long.")
     root = repository_root(project_dir)
+    staged = _staged_paths(root)
+    if not staged:
+        raise GitToolError("No staged changes to commit.")
+    secret_files = [path for path in staged if is_sensitive_path(path)]
+    if secret_files:
+        raise GitToolError(
+            "Refusing to commit possible secret files: " + ", ".join(secret_files)
+        )
     with _lock_for(root):
         result = _run_git(["commit", "-m", message.strip()], root)
     if result.returncode != 0:
@@ -206,7 +236,13 @@ def _remote_info(root: Path) -> tuple[str, str]:
     return branch, remote
 
 
-def push_current_branch(project_dir: str | os.PathLike[str] | None = None) -> str:
+def push_current_branch(
+    project_dir: str | os.PathLike[str] | None = None,
+    *,
+    confirmed: bool = False,
+) -> str:
+    if not confirmed:
+        raise GitToolError("Push confirmation is required before pushing changes.")
     root = repository_root(project_dir)
     branch, remote = _remote_info(root)
     upstream = _run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], root)
@@ -219,11 +255,20 @@ def push_current_branch(project_dir: str | os.PathLike[str] | None = None) -> st
     return (result.stdout or f"Pushed {branch} to {remote}.").strip()
 
 
-def add_commit_push(message: str, project_dir: str | os.PathLike[str] | None = None) -> dict[str, object]:
+def add_commit_push(
+    message: str,
+    project_dir: str | os.PathLike[str] | None = None,
+    *,
+    confirmed: bool = False,
+) -> dict[str, object]:
+    if not confirmed:
+        raise GitToolError("Commit and push confirmation is required before changing the repository or remote.")
+    if not message or not message.strip():
+        raise GitToolError("A non-empty commit message is required.")
     staged = stage_changes(project_dir)
     if not staged["staged"]:
         raise GitToolError(staged.get("message", "No safe files were staged."))
-    commit_output = create_commit(message, project_dir)
-    push_output = push_current_branch(project_dir)
+    commit_output = create_commit(message, project_dir, confirmed=True)
+    push_output = push_current_branch(project_dir, confirmed=True)
     return {"staged": staged, "commit": commit_output, "push": push_output}
 

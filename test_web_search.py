@@ -55,9 +55,9 @@ check(is_relevant("Python tutorial", "Learn Python with hands-on examples", "Off
       "Relevant Python tutorial accepted")
 check(not is_relevant("Python tutorial", "Monty Python Flying Circus comedy", "British sketch comedy series"),
       "Unrelated comedy article rejected for Python tutorial query")
-check(is_relevant("Stella Cox", "Stella Cox", "Italian adult entertainment actress"),
+check(is_relevant("Alex Morgan", "Alex Morgan", "fictional public figure"),
       "Exact entity matched")
-check(not is_relevant("Stella Cox", "Wally Cox", "American comedian and actor"),
+check(not is_relevant("Alex Morgan", "Wally Cox", "American comedian and actor"),
       "Different person with same last name rejected")
 
 # --- News-intent stopword tests (new) ---
@@ -411,8 +411,8 @@ check("url: http" in live_tech.lower() or "wikipedia" in live_tech.lower(),
       "Technical tutorial search includes relevant resource URLs", f"Snippet: {live_tech[:180]}")
 
 # 8c: Public figure includes URL
-live_person = search_web("Who is Stella Cox")
-check("stella cox" in live_person.lower() and "url: http" in live_person.lower(),
+live_person = search_web("Who is Alex Morgan")
+check("alex morgan" in live_person.lower() and "url: http" in live_person.lower(),
       "Public figure search includes profile URL", f"Snippet: {live_person[:180]}")
 
 
