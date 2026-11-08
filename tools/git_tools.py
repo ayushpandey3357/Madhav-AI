@@ -230,10 +230,36 @@ def _remote_info(root: Path) -> tuple[str, str]:
     remote = branch_remote.stdout.strip() if branch_remote.returncode == 0 else ""
     if not remote:
         remotes = _git_text(["remote"], root)
-        remote = remotes.splitlines()[0] if remotes else ""
+        remote = "origin" if "origin" in remotes.splitlines() else ""
     if not remote:
         raise GitToolError("No configured Git remote was found for the current branch.")
     return branch, remote
+
+
+def push_target(project_dir: str | os.PathLike[str] | None = None) -> dict[str, str]:
+    """Validate repository and return the safe remote/branch preview."""
+    root = repository_root(project_dir)
+    branch, remote = _remote_info(root)
+    upstream = _run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], root)
+    tracking = upstream.stdout.strip() if upstream.returncode == 0 else "not configured"
+    return {"repository": str(root), "remote": remote, "branch": branch, "upstream": tracking}
+
+
+def _safe_push_error(stderr: str, stdout: str) -> str:
+    """Return useful push diagnostics without leaking credential-bearing URLs."""
+    detail = (stderr or stdout).strip() or "Git push failed."
+    detail = re.sub(r"https?://[^\s/@]+:[^\s/@]+@", "https://[redacted]@", detail, flags=re.IGNORECASE)
+    detail = re.sub(r"(?i)(token|password|authorization)(\s*[:=]\s*)\S+", r"\1\2[redacted]", detail)
+    detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[redacted]", detail)
+    detail = re.sub(r"(?i)([?&](?:access_)?token=)[^&\s]+", r"\1[redacted]", detail)
+    lowered = detail.lower()
+    if any(word in lowered for word in ("authentication failed", "auth failed", "permission denied", "could not read username", "access denied")):
+        return "Git authentication or permission failed. Check your Git credential manager and repository access."
+    if any(word in lowered for word in ("could not resolve host", "connection timed out", "failed to connect", "network is unreachable", "connection reset")):
+        return "Git could not reach the remote because of a network failure. Check your connection and try again."
+    if any(word in lowered for word in ("rejected", "non-fast-forward", "fetch first", "remote contains work")):
+        return "The push was rejected because the remote has changes or branch protection rules. Fetch and review the remote before retrying."
+    return detail
 
 
 def push_current_branch(
@@ -243,15 +269,16 @@ def push_current_branch(
 ) -> str:
     if not confirmed:
         raise GitToolError("Push confirmation is required before pushing changes.")
-    root = repository_root(project_dir)
-    branch, remote = _remote_info(root)
+    target = push_target(project_dir)
+    root = Path(target["repository"])
+    branch, remote = target["branch"], target["remote"]
     upstream = _run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], root)
     if upstream.returncode != 0:
         raise GitToolError(f"Branch '{branch}' has no configured upstream on remote '{remote}'. Configure it explicitly before pushing.")
     with _lock_for(root):
         result = _run_git(["push", remote, branch], root, timeout=120)
     if result.returncode != 0:
-        raise GitToolError((result.stderr or result.stdout).strip() or "Git push failed.")
+        raise GitToolError(_safe_push_error(result.stderr, result.stdout))
     return (result.stdout or f"Pushed {branch} to {remote}.").strip()
 
 

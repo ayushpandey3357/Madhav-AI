@@ -3,11 +3,12 @@
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from main import TOOLS, detect_tool_request
+from main import TOOLS, _confirm_and_push, detect_tool_request
 from tools.git_tools import (
     GitToolError,
     check_status,
@@ -16,6 +17,7 @@ from tools.git_tools import (
     list_changed_files,
     list_staged_files,
     push_current_branch,
+    push_target,
     recent_commits,
     repository_root,
     stage_changes,
@@ -166,6 +168,46 @@ with tempfile.TemporaryDirectory(prefix="madhav-git-test-") as temporary:
         check("upstream" in str(error).lower(), "push without an upstream reports the actual configuration problem")
     else:
         raise AssertionError("push without an upstream unexpectedly succeeded")
+
+    # The dispatcher selects the allowlisted push function for all supported phrasings.
+    for phrase in (
+        "Push my latest commit to GitHub", "Push my changes to GitHub",
+        "Push to origin master", "Upload my commits to GitHub", "Push the current branch",
+    ):
+        check(detect_tool_request(phrase)["tool"] == "git_push", f"push dispatch: {phrase}")
+
+    target = push_target(repo)
+    check(target["remote"] == "origin" and target["branch"] == current_branch(repo), "push preview reports origin and the current branch")
+    called = []
+    with patch("main.push_target", return_value=target), patch("main.push_current_branch", side_effect=lambda *a, **k: called.append(k) or "pushed"):
+        check(_confirm_and_push(confirmation_reader=lambda _: "no") == "Push cancelled; no remote changes were made.", "no cancels push")
+        check(not called, "cancelled push never calls Git push")
+        check(_confirm_and_push(confirmation_reader=lambda _: "yes") == "pushed", "yes confirms push")
+        check(called == [{"confirmed": True}], "confirmed dispatch invokes push only after yes")
+    # Simulate an upstream and subprocess push result without contacting a network remote.
+    import tools.git_tools as git_tools
+    original_run_git = git_tools._run_git
+    def mocked_push(args, cwd, timeout=30):
+        if args and args[0] == "rev-parse" and "@{u}" in args:
+            return subprocess.CompletedProcess(args, 0, "origin/" + current_branch(repo), "")
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(args, 0, "mock push succeeded", "")
+        return original_run_git(args, cwd, timeout)
+    with patch("tools.git_tools._run_git", side_effect=mocked_push):
+        check(push_current_branch(repo, confirmed=True) == "mock push succeeded", "mocked push succeeds after confirmation")
+    def rejected_push(args, cwd, timeout=30):
+        if args and args[0] == "rev-parse" and "@{u}" in args:
+            return subprocess.CompletedProcess(args, 0, "origin/" + current_branch(repo), "")
+        if args and args[0] == "push":
+            return subprocess.CompletedProcess(args, 1, "", "! [rejected] (non-fast-forward)")
+        return original_run_git(args, cwd, timeout)
+    with patch("tools.git_tools._run_git", side_effect=rejected_push):
+        try:
+            push_current_branch(repo, confirmed=True)
+        except GitToolError as error:
+            check("rejected" in str(error).lower(), "failed push explains remote rejection")
+        else:
+            raise AssertionError("mock rejected push unexpectedly succeeded")
 
     try:
         repository_root(repo / "missing")

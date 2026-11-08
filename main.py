@@ -18,6 +18,7 @@ from tools.git_tools import (
     list_changed_files,
     list_staged_files,
     push_current_branch,
+    push_target,
     recent_commits,
     stage_changes,
 )
@@ -404,9 +405,12 @@ def _detect_git_request(text: str):
         return {"action": "tool", "tool": "git_commit", "query": message, "message": message}
     if re.search(r"\bcommit\s+(?:and\s+)?push\s+(?:all\s+)?(?:my\s+)?changes?$", lowered):
         return {"action": "tool", "tool": "git_add_commit_push", "query": "commit and push", "message": ""}
-    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?\s+to\s+github$", lowered):
-        return {"action": "tool", "tool": "git_push", "query": "push"}
-    if re.search(r"\bpush\s+(?:all\s+)?(?:my\s+)?changes?$", lowered):
+    push_intent = re.search(
+        r"\b(?:push|upload)\s+(?:(?:all|my|the)\s+)*(?:latest\s+commit|commits?|changes?|the\s+current\s+branch|current\s+branch|to\s+(?:github|origin(?:\s+[\w./-]+)?))"
+        r"(?:\s+to\s+(?:github|origin(?:\s+[\w./-]+)?))?$",
+        lowered,
+    )
+    if push_intent:
         return {"action": "tool", "tool": "git_push", "query": "push"}
     return None
 
@@ -443,6 +447,21 @@ def _format_stage_result(result):
     if not staged and result.get("message"):
         lines.append(str(result["message"]))
     return "\n".join(lines)
+
+
+def _confirm_and_push(project_dir=None, *, confirmation_reader=input):
+    """Show the validated target and push only after an exact yes response."""
+    target = push_target(project_dir)
+    print(
+        "Git push target:\n"
+        f"  Remote: {target['remote']}\n"
+        f"  Branch: {target['branch']}\n"
+        f"  Upstream: {target['upstream']}"
+    )
+    confirmation = confirmation_reader("Push this branch? Type 'yes' to confirm: ").strip().lower()
+    if confirmation != "yes":
+        return "Push cancelled; no remote changes were made."
+    return push_current_branch(project_dir, confirmed=True)
 
 
 def is_uncertain_or_refusal(text: str) -> bool:
@@ -626,11 +645,7 @@ def chat():
                                             else:
                                                 answer += "\nPush cancelled; the commit was created but not pushed."
                         elif tool_name == "git_push":
-                            confirmation = input("Push the current branch? Type 'yes' to confirm: ").strip().lower()
-                            if confirmation == "yes":
-                                answer = push_current_branch(confirmed=True)
-                            else:
-                                answer = "Push cancelled; no remote changes were made."
+                            answer = _confirm_and_push()
                         else:
                             answer = "Unsupported Git operation."
                     except GitToolError as err:
